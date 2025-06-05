@@ -1,2 +1,5 @@
-./Project 1
-./Project 2
+Project 1
+Project 2
+\secure_file_storage\client\__pycache__
+\secure_file_storage\client\download
+\secure_file_storage\server\storage

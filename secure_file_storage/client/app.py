@@ -2,14 +2,31 @@ import crypto_utils
 import requests
 import os
 import base64
+import json
 from colorama import Fore, Back, Style
 
 SERVER_URL = "http://127.0.0.1:5000"  # Replace with your server URL
+
+def create_storage_on_server(storage_id):
+    try:
+        response = requests.post(f"{SERVER_URL}/create_storage", json={"storage_id": storage_id})
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(Fore.RED + f"Error creating storage: {e}" + Style.RESET_ALL)
+        return None
 
 def create_new_storage():
     master_key, storage_id = crypto_utils.generate_storage_id()
     print(f"Master Key: {master_key}")
     print(f"Storage ID: {storage_id}")
+
+    # Create storage on server
+    result = create_storage_on_server(storage_id)
+    if result and result["status"] == "created":
+        print(Fore.GREEN + "Storage created successfully on server." + Style.RESET_ALL)
+    elif result and result["status"] == "exists":
+        print(Fore.YELLOW + "Storage already exists on server." + Style.RESET_ALL)
     return master_key, storage_id
 
 def access_existing_storage():
@@ -18,7 +35,17 @@ def access_existing_storage():
         base64.b64decode(master_key), b"my-app-storage", crypto_utils.hashlib.sha256
     ).hexdigest()
     print(f"Storage ID: {storage_id}")
-    return master_key, storage_id
+
+    # Check if storage exists on server
+    result = create_storage_on_server(storage_id)
+    if result is None:
+        return None, None  # Indicate error
+    if result["status"] == "exists":
+        print(Fore.GREEN + "Accessing Storage successfully." + Style.RESET_ALL)
+        return master_key, storage_id
+    else:
+        print(Fore.RED + "Storage not found on server." + Style.RESET_ALL)
+        return None, None
 
 def upload_file(master_key, storage_id):
     file_path = input("Enter the path to the file to upload: ")
@@ -49,7 +76,7 @@ def upload_file(master_key, storage_id):
     }
 
     files = {"encrypted_file": (filename, ciphertext, "application/octet-stream")}
-    data = {"storage_id": storage_id, "metadata": str(metadata)}
+    data = {"storage_id": storage_id, "metadata": json.dumps(metadata)}
 
     try:
         response = requests.post(f"{SERVER_URL}/upload", files=files, data=data)
@@ -58,21 +85,22 @@ def upload_file(master_key, storage_id):
     except requests.exceptions.RequestException as e:
         print(Fore.RED + f"Error uploading file: {e}" + Style.RESET_ALL)
 
-def list_files(storage_id):
+def list_files(master_key, storage_id):
     data = {"storage_id": storage_id}
     try:
         response = requests.post(f"{SERVER_URL}/list", data=data)
         response.raise_for_status()
         files = response.json()
         print("Files in storage:")
-        print("***************")
+        print("********************")
         for file in files:
-            print("* " + file)
-        print("***************")
+            if file.endswith(".enc"):
+                print("* " + file)
+        print("********************")
     except requests.exceptions.RequestException as e:
         print(Fore.RED + f"Error listing files: {e}" + Style.RESET_ALL)
 
-def delete_file(storage_id):
+def delete_file(master_key, storage_id):
     filename = input("Enter the name of the file to delete: ")
     data = {"storage_id": storage_id, "filename": filename}
     try:
@@ -108,10 +136,14 @@ def download_file(master_key, storage_id):
             master_key,
         )
 
-        with open(filename, "wb") as f:
+        download_path = os.path.join(".", "download")
+        os.makedirs(download_path, exist_ok=True)
+        filepath = os.path.join(download_path, filename)
+
+        with open(filepath, "wb") as f:
             f.write(decrypted_contents)
 
-        print(f"File downloaded and decrypted as {filename}")
+        print(f"File downloaded and decrypted as {filepath}")
     except requests.exceptions.RequestException as e:
         print(Fore.RED + f"Error downloading file: {e}" + Style.RESET_ALL)
 
@@ -125,34 +157,43 @@ if __name__ == "__main__":
         print("[3] Exit")
 
         choice = input("Enter your choice: ")
+        print("------------------\n")
 
         if choice == "1":
             master_key, storage_id = create_new_storage()
+            if not master_key:
+                continue # Back to main menu if create fails
         elif choice == "2":
             master_key, storage_id = access_existing_storage()
-            while True:
-                print("\n------------------")
-                print("Storage:")
-                print("[a] Upload File")
-                print("[b] List Files")
-                print("[c] Download File")
-                print("[d] Delete File")
-                print("[x] Back to Main Menu")
-                sub_choice = input("Enter your choice: ")
-
-                if sub_choice == "a":
-                    upload_file(master_key, storage_id)
-                elif sub_choice == "b":
-                    list_files(storage_id)
-                elif sub_choice == "c":
-                    download_file(master_key, storage_id)
-                elif sub_choice == "d":
-                    delete_file(storage_id)
-                elif sub_choice == "x":
-                    break
-                else:
-                    print("Invalid choice.")
+            if not master_key:
+                continue  # Back to main menu if access fails
+            if not master_key or not storage_id:
+                continue
         elif choice == "3":
             break
         else:
             print("Invalid choice.")
+            continue
+
+        while True:
+            print("\n------------------")
+            print("Storage:")
+            print("[a] Upload File")
+            print("[b] List Files")
+            print("[c] Download File")
+            print("[d] Delete File")
+            print("[x] Back to Main Menu")
+            sub_choice = input("Enter your choice: ")
+            print("------------------\n")
+            if sub_choice == "a":
+                upload_file(master_key, storage_id)
+            elif sub_choice == "b":
+                list_files(master_key, storage_id)
+            elif sub_choice == "c":
+                download_file(master_key, storage_id)
+            elif sub_choice == "d":
+                delete_file(master_key, storage_id)
+            elif sub_choice == "x":
+                break
+            else:
+                print("Invalid choice.")

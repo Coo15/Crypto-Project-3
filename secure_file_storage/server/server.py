@@ -3,9 +3,25 @@ import os
 import json
 import base64
 
+def ensure_storage_dir(storage_id):
+    path = os.path.join(STORAGE_DIR, storage_id)
+    if not os.path.exists(path):
+        os.makedirs(path)
+
 app = Flask(__name__)
 
-STORAGE_DIR = "storage"
+@app.route("/create_storage", methods=["POST"])
+def create_storage():
+    data = request.get_json()
+    storage_id = data["storage_id"]
+    path = os.path.join(STORAGE_DIR, storage_id)
+    if os.path.exists(path):
+        return jsonify({"message": "Already exists", "status": "exists"}), 200
+    else:
+        os.makedirs(path)
+        return jsonify({"message": "Storage created", "status": "created"}), 201
+
+STORAGE_DIR = os.path.join(".", "storage")
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -13,9 +29,7 @@ def upload():
     encrypted_file = request.files["encrypted_file"]
     metadata = request.form["metadata"]
 
-    # Create storage directory if it doesn't exist
     storage_path = os.path.join(STORAGE_DIR, storage_id)
-    os.makedirs(storage_path, exist_ok=True)
 
     # Save the encrypted file
     filename = encrypted_file.filename
@@ -35,7 +49,7 @@ def list_files():
     storage_path = os.path.join(STORAGE_DIR, storage_id)
 
     if not os.path.exists(storage_path):
-        return jsonify([]), 200
+        return jsonify({"error": "Storage not found"}), 404
 
     files = os.listdir(storage_path)
     return jsonify(files), 200
